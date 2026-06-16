@@ -41,6 +41,7 @@ class PriceTemplateCreate(BaseModel):
     brand_code: str
     site_code: str
     template_name: str
+    template_version: Optional[int] = None
     effective_date: Optional[datetime] = None
     expire_date: Optional[datetime] = None
     fee_items: List[FeeItemCreate]

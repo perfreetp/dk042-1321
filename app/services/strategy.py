@@ -1,3 +1,4 @@
+from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
 from app.models.strategy import ChannelPrice, FeeItem, PriceTemplate
@@ -5,10 +6,27 @@ from app.schemas.strategy import PriceTemplateCreate, PriceTemplateUpdate
 
 
 def create_template(db: Session, data: PriceTemplateCreate) -> PriceTemplate:
+    version = data.template_version
+    if not version:
+        max_version_tpl = (
+            db.query(PriceTemplate)
+            .filter(
+                PriceTemplate.brand_code == data.brand_code,
+                PriceTemplate.site_code == data.site_code,
+            )
+            .order_by(desc(PriceTemplate.template_version))
+            .first()
+        )
+        if max_version_tpl:
+            version = max_version_tpl.template_version + 1
+        else:
+            version = 1
+
     template = PriceTemplate(
         brand_code=data.brand_code,
         site_code=data.site_code,
         template_name=data.template_name,
+        template_version=version,
         effective_date=data.effective_date,
         expire_date=data.expire_date,
     )

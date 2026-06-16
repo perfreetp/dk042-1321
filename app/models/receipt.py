@@ -31,7 +31,9 @@ class RetryLog(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     receipt_id: Mapped[int] = mapped_column(Integer, ForeignKey("receipt_records.id"))
+    retry_no: Mapped[int] = mapped_column(Integer, default=1)
     retry_at: Mapped[datetime] = mapped_column(DateTime)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     status: Mapped[str] = mapped_column(String(32))
     error_message: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     response_data: Mapped[str | None] = mapped_column(Text, nullable=True)

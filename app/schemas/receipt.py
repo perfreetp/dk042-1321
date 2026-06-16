@@ -14,7 +14,9 @@ class ReceiptRecordCreate(BaseModel):
 class RetryLogOut(BaseModel):
     id: int
     receipt_id: int
+    retry_no: int
     retry_at: datetime
+    completed_at: Optional[datetime]
     status: str
     error_message: Optional[str]
     response_data: Optional[str]

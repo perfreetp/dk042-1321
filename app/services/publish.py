@@ -193,6 +193,7 @@ def rollback_task(db: Session, task_id: int, data: PublishRollbackRequest) -> Pu
 
     task.status = "rolled_back"
     task.rollback_at = datetime.utcnow()
+    task.rollback_operator = data.operator
     _add_log(db, task.id, "rollback", detail=data.remark, operator=data.operator)
     db.commit()
     db.refresh(task)

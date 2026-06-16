@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from fastapi import HTTPException
+from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
 from app.models.receipt import ReceiptRecord, RetryLog
@@ -42,6 +43,26 @@ def list_receipts(
     return query.offset(skip).limit(limit).all()
 
 
+def _update_latest_retry_log(
+    db: Session,
+    record: ReceiptRecord,
+    status: str,
+    error_message: str = None,
+    response_data: str = None,
+) -> None:
+    latest_log = (
+        db.query(RetryLog)
+        .filter(RetryLog.receipt_id == record.id)
+        .order_by(desc(RetryLog.retry_at))
+        .first()
+    )
+    if latest_log and latest_log.status == "pending":
+        latest_log.status = status
+        latest_log.completed_at = datetime.utcnow()
+        latest_log.error_message = error_message
+        latest_log.response_data = response_data
+
+
 def handle_callback(db: Session, data: ReceiptCallbackRequest) -> ReceiptRecord:
     record = (
         db.query(ReceiptRecord)
@@ -55,6 +76,10 @@ def handle_callback(db: Session, data: ReceiptCallbackRequest) -> ReceiptRecord:
     record.response_data = data.response_data
     record.error_message = data.error_message
     record.completed_at = datetime.utcnow()
+
+    if record.retry_count > 0:
+        _update_latest_retry_log(db, record, data.status, data.error_message, data.response_data)
+
     db.commit()
     db.refresh(record)
     return record
@@ -73,10 +98,9 @@ def retry_receipt(db: Session, receipt_id: int) -> ReceiptRecord:
 
     log = RetryLog(
         receipt_id=record.id,
+        retry_no=record.retry_count,
         retry_at=datetime.utcnow(),
         status="pending",
-        error_message=record.error_message,
-        response_data=record.response_data,
     )
     db.add(log)
     db.commit()
@@ -84,7 +108,7 @@ def retry_receipt(db: Session, receipt_id: int) -> ReceiptRecord:
     return record
 
 
-def batch_retry_failed(db: Session) -> list:
+def batch_retry_failed(db: Session) -> dict:
     records = (
         db.query(ReceiptRecord)
         .filter(ReceiptRecord.status == "failed")
@@ -108,7 +132,9 @@ def batch_retry_failed(db: Session) -> list:
         record.status = "final_failed"
         log = RetryLog(
             receipt_id=record.id,
+            retry_no=record.retry_count + 1,
             retry_at=datetime.utcnow(),
+            completed_at=datetime.utcnow(),
             status="final_failed",
             error_message=f"已达到最大重试次数({record.max_retry}次)，标记为最终失败",
         )

@@ -11,6 +11,40 @@ from app.models.receipt import ReceiptRecord
 from app.services.channel import transform_price_data
 
 
+def _get_last_action(db: Session, brand_code: str, site_code: str):
+    published_tasks = (
+        db.query(PublishTask)
+        .join(PriceTemplate, PublishTask.template_id == PriceTemplate.id)
+        .filter(
+            PriceTemplate.brand_code == brand_code,
+            PriceTemplate.site_code == site_code,
+            PublishTask.status.in_(["published", "rolled_back"]),
+        )
+        .all()
+    )
+    last_event = None
+    last_task = None
+    last_action_type = None
+    last_operator = None
+    for task in published_tasks:
+        if task.published_at and (last_event is None or task.published_at > last_event):
+            last_event = task.published_at
+            last_task = task
+            last_action_type = "publish"
+            last_operator = task.operator
+        if task.rollback_at and (last_event is None or task.rollback_at > last_event):
+            last_event = task.rollback_at
+            last_task = task
+            last_action_type = "rollback"
+            last_operator = task.rollback_operator
+    return {
+        "task": last_task,
+        "action_type": last_action_type,
+        "action_at": last_event,
+        "action_operator": last_operator,
+    }
+
+
 def query_current_price(
     db: Session,
     brand_code: str,
@@ -29,8 +63,13 @@ def query_current_price(
         .order_by(desc(PriceTemplate.template_version))
         .all()
     )
+    last_action_cache = {}
     results = []
     for tpl in templates:
+        cache_key = f"{tpl.brand_code}:{tpl.site_code}"
+        if cache_key not in last_action_cache:
+            last_action_cache[cache_key] = _get_last_action(db, tpl.brand_code, tpl.site_code)
+        last_action = last_action_cache[cache_key]
         fee_items = db.query(FeeItem).filter(FeeItem.template_id == tpl.id).all()
         channel_prices = db.query(ChannelPrice).filter(ChannelPrice.template_id == tpl.id).all()
         latest_publish = (
@@ -42,6 +81,31 @@ def query_current_price(
             .order_by(desc(PublishTask.published_at))
             .first()
         )
+        publish_info = None
+        if latest_publish:
+            publish_info = {
+                "task_id": latest_publish.id,
+                "status": latest_publish.status,
+                "published_at": latest_publish.published_at,
+                "rollback_at": latest_publish.rollback_at,
+                "operator": latest_publish.operator,
+            }
+        effective_info = None
+        if last_action and last_action["task"]:
+            last_task = last_action["task"]
+            last_tpl = db.query(PriceTemplate).filter(PriceTemplate.id == last_task.template_id).first()
+            effective_info = {
+                "action_type": last_action["action_type"],
+                "action_at": last_action["action_at"],
+                "action_task_id": last_task.id,
+                "action_operator": last_action["action_operator"],
+                "action_template_id": last_task.template_id,
+                "action_template_name": last_tpl.template_name if last_tpl else None,
+                "action_template_version": last_tpl.template_version if last_tpl else None,
+                "current_template_id": tpl.id,
+                "current_template_name": tpl.template_name,
+                "current_template_version": tpl.template_version,
+            }
         tpl_data = {
             "template_id": tpl.id,
             "brand_code": tpl.brand_code,
@@ -61,13 +125,8 @@ def query_current_price(
                 for f in fee_items
             ],
             "channel_prices": [],
-            "publish_status": {
-                "task_id": latest_publish.id if latest_publish else None,
-                "status": latest_publish.status if latest_publish else None,
-                "published_at": latest_publish.published_at if latest_publish else None,
-                "rollback_at": latest_publish.rollback_at if latest_publish else None,
-                "operator": latest_publish.operator if latest_publish else None,
-            } if latest_publish else None,
+            "publish_status": publish_info,
+            "effective_info": effective_info,
         }
         for cp in channel_prices:
             if channel_code and cp.channel_code != channel_code:

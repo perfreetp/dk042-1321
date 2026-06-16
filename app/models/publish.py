@@ -19,6 +19,7 @@ class PublishTask(Base):
     grayscale_channel_codes: Mapped[str | None] = mapped_column(String(512), nullable=True)
     published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     rollback_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    rollback_operator: Mapped[str | None] = mapped_column(String(64), nullable=True)
     operator: Mapped[str] = mapped_column(String(64), nullable=False)
     remark: Mapped[str | None] = mapped_column(String(512), nullable=True)
     snapshot_data: Mapped[str | None] = mapped_column(Text, nullable=True)
