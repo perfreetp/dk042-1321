@@ -65,7 +65,7 @@ def retry_receipt(db: Session, receipt_id: int) -> ReceiptRecord:
     if not record:
         raise HTTPException(status_code=404, detail="回执记录不存在")
     if record.retry_count >= record.max_retry:
-        raise HTTPException(status_code=400, detail="已达到最大重试次数")
+        raise HTTPException(status_code=400, detail=f"已达到最大重试次数({record.max_retry}次)，不再重试")
 
     record.retry_count += 1
     record.status = "pending"
@@ -89,12 +89,14 @@ def process_failed_receipts(db: Session) -> list:
         db.query(ReceiptRecord)
         .filter(ReceiptRecord.status == "failed")
         .filter(ReceiptRecord.retry_count < ReceiptRecord.max_retry)
-        .filter(ReceiptRecord.next_retry_at <= datetime.utcnow())
         .all()
     )
     retried = []
     for record in records:
-        retried.append(retry_receipt(db, record.id))
+        try:
+            retried.append(retry_receipt(db, record.id))
+        except HTTPException:
+            pass
     return retried
 
 
