@@ -6,12 +6,18 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.schemas.strategy import PriceTemplateCreate, PriceTemplateOut, PriceTemplateUpdate
 from app.services import strategy as strategy_service
+from app.services import risk as risk_service
 
 router = APIRouter(prefix="/strategy", tags=["策略编排"])
 
 
 @router.post("/templates", response_model=PriceTemplateOut)
 def create_template(data: PriceTemplateCreate, db: Session = Depends(get_db)):
+    if risk_service.check_region_frozen(db, data.site_code):
+        raise HTTPException(
+            status_code=403,
+            detail=f"站点[{data.site_code}]所属区域已被冻结，禁止创建价格模板",
+        )
     return strategy_service.create_template(db, data)
 
 

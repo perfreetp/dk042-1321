@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -17,6 +17,36 @@ class PriceLimitRule(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class ApprovalStrategy(Base):
+    __tablename__ = "approval_strategies"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    brand_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    site_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    channel_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    max_increase_pct: Mapped[float] = mapped_column(Float, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class ApprovalRecord(Base):
+    __tablename__ = "approval_records"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    task_id: Mapped[int] = mapped_column(Integer, ForeignKey("publish_tasks.id"), nullable=False)
+    strategy_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    approval_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    trigger_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), default="pending")
+    approved_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    rejected_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    rejected_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    reject_reason: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 class FreezeRule(Base):

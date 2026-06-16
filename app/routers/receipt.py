@@ -79,3 +79,8 @@ def batch_retry_failed(db: Session = Depends(get_db)):
 @router.post("/batch", response_model=List[ReceiptRecordOut])
 def create_receipts_for_task(task_id: int, channel_codes: List[str], db: Session = Depends(get_db)):
     return receipt_service.create_receipts_for_task(db, task_id, channel_codes)
+
+
+@router.get("/task-summary/{task_id}")
+def get_task_receipt_summary(task_id: int, db: Session = Depends(get_db)):
+    return receipt_service.get_task_receipt_summary(db, task_id)

@@ -27,6 +27,7 @@ class PublishTask(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     logs: Mapped[list["PublishLog"]] = relationship(back_populates="task", cascade="all, delete-orphan")
+    grayscale_channels: Mapped[list["GrayscaleChannelStatus"]] = relationship(back_populates="task", cascade="all, delete-orphan")
 
 
 class PublishLog(Base):
@@ -40,3 +41,18 @@ class PublishLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     task: Mapped["PublishTask"] = relationship(back_populates="logs")
+
+
+class GrayscaleChannelStatus(Base):
+    __tablename__ = "grayscale_channel_statuses"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    task_id: Mapped[int] = mapped_column(Integer, ForeignKey("publish_tasks.id"), nullable=False)
+    channel_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    ratio: Mapped[float] = mapped_column(Float, default=0.0)
+    receipt_status: Mapped[str] = mapped_column(String(32), default="pending")
+    is_full: Mapped[bool] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    task: Mapped["PublishTask"] = relationship(back_populates="grayscale_channels")

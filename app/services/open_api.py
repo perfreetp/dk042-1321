@@ -8,6 +8,7 @@ from app.models.strategy import PriceTemplate, FeeItem, ChannelPrice
 from app.models.publish import PublishTask, PublishLog
 from app.models.channel import ChannelConfig, FieldMapping
 from app.models.receipt import ReceiptRecord
+from app.models.risk import ApprovalRecord
 from app.services.channel import transform_price_data
 
 
@@ -83,12 +84,22 @@ def query_current_price(
         )
         publish_info = None
         if latest_publish:
+            approval_records = db.query(ApprovalRecord).filter(ApprovalRecord.task_id == latest_publish.id).all()
+            approval_status = "not_required"
+            if approval_records:
+                if any(r.status == "pending" for r in approval_records):
+                    approval_status = "pending"
+                elif any(r.status == "rejected" for r in approval_records):
+                    approval_status = "rejected"
+                else:
+                    approval_status = "approved"
             publish_info = {
                 "task_id": latest_publish.id,
                 "status": latest_publish.status,
                 "published_at": latest_publish.published_at,
                 "rollback_at": latest_publish.rollback_at,
                 "operator": latest_publish.operator,
+                "approval_status": approval_status,
             }
         effective_info = None
         if last_action and last_action["task"]:

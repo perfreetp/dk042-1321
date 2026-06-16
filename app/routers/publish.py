@@ -92,3 +92,28 @@ def rollback_task(task_id: int, data: PublishRollbackRequest, db: Session = Depe
 def cancel_task(task_id: int, operator: str, db: Session = Depends(get_db)):
     task = publish_service.cancel_task(db, task_id, operator)
     return _enrich_task(task, db)
+
+
+@router.get("/tasks/{task_id}/grayscale")
+def get_grayscale_status(task_id: int, db: Session = Depends(get_db)):
+    return publish_service.get_grayscale_status(db, task_id)
+
+
+@router.post("/tasks/{task_id}/grayscale/{channel_code}/promote")
+def promote_grayscale_channel(
+    task_id: int,
+    channel_code: str,
+    ratio: float = 1.0,
+    db: Session = Depends(get_db),
+):
+    return publish_service.promote_grayscale_channel(db, task_id, channel_code, ratio)
+
+
+@router.post("/tasks/{task_id}/grayscale/{channel_code}/rollback")
+def rollback_grayscale_channel(
+    task_id: int,
+    channel_code: str,
+    operator: str,
+    db: Session = Depends(get_db),
+):
+    return publish_service.rollback_grayscale_channel(db, task_id, channel_code, operator)

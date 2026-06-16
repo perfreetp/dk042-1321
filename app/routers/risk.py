@@ -5,6 +5,10 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.schemas.risk import (
+    ApprovalActionRequest,
+    ApprovalRecordOut,
+    ApprovalStrategyCreate,
+    ApprovalStrategyOut,
     ConflictRecordOut,
     ConflictResolveRequest,
     FreezeRuleCreate,
@@ -118,3 +122,44 @@ def list_reconciliation_reports(
     db: Session = Depends(get_db),
 ):
     return risk_service.list_reconciliation_reports(db, channel_code, skip, limit)
+
+
+@router.post("/approval-strategies", response_model=ApprovalStrategyOut)
+def create_approval_strategy(data: ApprovalStrategyCreate, db: Session = Depends(get_db)):
+    return risk_service.create_approval_strategy(db, data)
+
+
+@router.get("/approval-strategies", response_model=List[ApprovalStrategyOut])
+def list_approval_strategies(
+    brand_code: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 20,
+    db: Session = Depends(get_db),
+):
+    return risk_service.list_approval_strategies(db, brand_code, skip, limit)
+
+
+@router.get("/approvals", response_model=List[ApprovalRecordOut])
+def list_approvals(
+    task_id: Optional[int] = None,
+    skip: int = 0,
+    limit: int = 20,
+    db: Session = Depends(get_db),
+):
+    return risk_service.get_pending_approvals(db, task_id, skip, limit)
+
+
+@router.post("/approvals/{approval_id}/approve", response_model=ApprovalRecordOut)
+def approve_approval(approval_id: int, data: ApprovalActionRequest, db: Session = Depends(get_db)):
+    record = risk_service.approve_record(db, approval_id, data)
+    if not record:
+        raise HTTPException(status_code=404, detail="审批记录不存在")
+    return record
+
+
+@router.post("/approvals/{approval_id}/reject", response_model=ApprovalRecordOut)
+def reject_approval(approval_id: int, data: ApprovalActionRequest, db: Session = Depends(get_db)):
+    record = risk_service.reject_record(db, approval_id, data)
+    if not record:
+        raise HTTPException(status_code=404, detail="审批记录不存在")
+    return record

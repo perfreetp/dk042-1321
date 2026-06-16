@@ -25,6 +25,49 @@ class PriceLimitRuleOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ApprovalStrategyCreate(BaseModel):
+    brand_code: str
+    site_code: Optional[str] = None
+    channel_code: Optional[str] = None
+    max_increase_pct: float
+    enabled: Optional[bool] = True
+
+
+class ApprovalStrategyOut(BaseModel):
+    id: int
+    brand_code: str
+    site_code: Optional[str]
+    channel_code: Optional[str]
+    max_increase_pct: float
+    enabled: bool
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ApprovalRecordOut(BaseModel):
+    id: int
+    task_id: int
+    strategy_id: int
+    approval_type: str
+    trigger_detail: Optional[str]
+    status: str
+    approved_by: Optional[str]
+    approved_at: Optional[datetime]
+    rejected_by: Optional[str]
+    rejected_at: Optional[datetime]
+    reject_reason: Optional[str]
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ApprovalActionRequest(BaseModel):
+    operator: str
+    reason: Optional[str] = None
+
+
 class FreezeRuleCreate(BaseModel):
     region_code: str
     region_name: str

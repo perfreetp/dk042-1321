@@ -5,10 +5,11 @@ from fastapi import HTTPException
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
-from app.models.publish import PublishLog, PublishTask
+from app.models.publish import PublishLog, PublishTask, GrayscaleChannelStatus
+from app.models.receipt import ReceiptRecord
 from app.models.strategy import FeeItem, PriceTemplate
 from app.schemas.publish import PublishRollbackRequest, PublishTaskCreate
-from app.services.risk import check_region_frozen, detect_conflict, validate_price
+from app.services.risk import check_region_frozen, check_approval_needed, check_task_approval_status, create_approval_records, detect_conflict, validate_price
 
 
 def _add_log(db: Session, task_id: int, action: str, detail: str = None, operator: str = None):
@@ -113,6 +114,8 @@ def create_task(db: Session, data: PublishTaskCreate) -> PublishTask:
     _check_region_freeze(db, tpl)
     _check_conflicts(db, data.template_id, data.operator, tpl.brand_code, tpl.site_code)
 
+    triggered = check_approval_needed(db, data.template_id)
+
     task = PublishTask(
         template_id=data.template_id,
         publish_type=data.publish_type,
@@ -124,6 +127,25 @@ def create_task(db: Session, data: PublishTaskCreate) -> PublishTask:
     )
     db.add(task)
     db.flush()
+
+    if triggered:
+        create_approval_records(db, task.id, triggered)
+        _add_log(db, task.id, "approval_pending", detail="需要审批后才能发布", operator=data.operator)
+        db.commit()
+        db.refresh(task)
+        if data.publish_type == "immediate":
+            approval_status = check_task_approval_status(db, task.id)
+            if approval_status == "pending":
+                raise HTTPException(
+                    status_code=202,
+                    detail={
+                        "message": "价格涨幅超过审批阈值，已进入待审批状态",
+                        "task_id": task.id,
+                        "approval_status": "pending",
+                    },
+                )
+        return task
+
     _add_log(db, task.id, "create", operator=data.operator)
     db.commit()
     db.refresh(task)
@@ -154,6 +176,12 @@ def publish_now(db: Session, task_id: int) -> PublishTask:
     if task.status != "pending":
         raise HTTPException(status_code=400, detail="仅pending状态可执行发布")
 
+    approval_status = check_task_approval_status(db, task_id)
+    if approval_status == "pending":
+        raise HTTPException(status_code=403, detail="审批未通过，不能执行发布")
+    if approval_status == "rejected":
+        raise HTTPException(status_code=403, detail="审批已被拒绝，不能执行发布")
+
     tpl = _get_template(db, task.template_id)
     _validate_template_prices(db, tpl)
     _check_region_freeze(db, tpl)
@@ -175,6 +203,19 @@ def publish_now(db: Session, task_id: int) -> PublishTask:
 
     task.status = "published"
     task.published_at = datetime.utcnow()
+
+    if task.publish_type == "grayscale" and task.grayscale_channel_codes:
+        channel_codes = [c.strip() for c in task.grayscale_channel_codes.split(",") if c.strip()]
+        for cc in channel_codes:
+            gs = GrayscaleChannelStatus(
+                task_id=task.id,
+                channel_code=cc,
+                ratio=task.grayscale_ratio or 0.0,
+                receipt_status="pending",
+                is_full=0,
+            )
+            db.add(gs)
+
     _add_log(db, task.id, "publish", detail=snapshot, operator=task.operator)
     db.commit()
     db.refresh(task)
@@ -229,3 +270,63 @@ def check_and_publish_scheduled(db: Session) -> list:
         except HTTPException:
             pass
     return published
+
+
+def get_grayscale_status(db: Session, task_id: int) -> list:
+    channels = db.query(GrayscaleChannelStatus).filter(GrayscaleChannelStatus.task_id == task_id).all()
+    result = []
+    for ch in channels:
+        receipt = (
+            db.query(ReceiptRecord)
+            .filter(ReceiptRecord.task_id == task_id, ReceiptRecord.channel_code == ch.channel_code)
+            .first()
+        )
+        result.append({
+            "id": ch.id,
+            "task_id": ch.task_id,
+            "channel_code": ch.channel_code,
+            "ratio": ch.ratio,
+            "receipt_status": receipt.status if receipt else ch.receipt_status,
+            "is_full": bool(ch.is_full),
+            "created_at": ch.created_at,
+            "updated_at": ch.updated_at,
+        })
+    return result
+
+
+def promote_grayscale_channel(db: Session, task_id: int, channel_code: str, ratio: float = 1.0) -> GrayscaleChannelStatus:
+    ch = db.query(GrayscaleChannelStatus).filter(
+        GrayscaleChannelStatus.task_id == task_id,
+        GrayscaleChannelStatus.channel_code == channel_code,
+    ).first()
+    if not ch:
+        raise HTTPException(status_code=404, detail="灰度渠道不存在")
+    ch.ratio = ratio
+    if ratio >= 1.0:
+        ch.is_full = 1
+    db.commit()
+    db.refresh(ch)
+    return ch
+
+
+def rollback_grayscale_channel(db: Session, task_id: int, channel_code: str, operator: str) -> GrayscaleChannelStatus:
+    ch = db.query(GrayscaleChannelStatus).filter(
+        GrayscaleChannelStatus.task_id == task_id,
+        GrayscaleChannelStatus.channel_code == channel_code,
+    ).first()
+    if not ch:
+        raise HTTPException(status_code=404, detail="灰度渠道不存在")
+    ch.receipt_status = "rolled_back"
+    ch.ratio = 0.0
+    ch.is_full = 0
+    receipt = (
+        db.query(ReceiptRecord)
+        .filter(ReceiptRecord.task_id == task_id, ReceiptRecord.channel_code == channel_code)
+        .first()
+    )
+    if receipt:
+        receipt.status = "rolled_back"
+    _add_log(db, task_id, "grayscale_rollback", detail=f"灰度渠道[{channel_code}]回退", operator=operator)
+    db.commit()
+    db.refresh(ch)
+    return ch

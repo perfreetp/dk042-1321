@@ -172,3 +172,41 @@ def create_receipts_for_task(db: Session, task_id: int, channel_codes: list[str]
     for record in records:
         db.refresh(record)
     return records
+
+
+def get_task_receipt_summary(db: Session, task_id: int) -> dict:
+    records = db.query(ReceiptRecord).filter(ReceiptRecord.task_id == task_id).all()
+    total = len(records)
+    success = sum(1 for r in records if r.status == "success")
+    failed = sum(1 for r in records if r.status == "failed")
+    final_failed = sum(1 for r in records if r.status == "final_failed")
+    pending = sum(1 for r in records if r.status == "pending")
+    channels = []
+    for r in records:
+        retries = db.query(RetryLog).filter(RetryLog.receipt_id == r.id).order_by(RetryLog.retry_no).all()
+        channels.append({
+            "receipt_id": r.id,
+            "channel_code": r.channel_code,
+            "status": r.status,
+            "retry_count": r.retry_count,
+            "max_retry": r.max_retry,
+            "retries": [
+                {
+                    "retry_no": log.retry_no,
+                    "retry_at": log.retry_at,
+                    "completed_at": log.completed_at,
+                    "status": log.status,
+                    "error_message": log.error_message,
+                }
+                for log in retries
+            ],
+        })
+    return {
+        "task_id": task_id,
+        "total": total,
+        "success": success,
+        "failed": failed,
+        "final_failed": final_failed,
+        "pending": pending,
+        "channels": channels,
+    }
