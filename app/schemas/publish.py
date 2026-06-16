@@ -41,6 +41,11 @@ class PublishTaskOut(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+    template_name: Optional[str] = None
+    template_version: Optional[int] = None
+    brand_code: Optional[str] = None
+    site_code: Optional[str] = None
+
     model_config = {"from_attributes": True}
 
 

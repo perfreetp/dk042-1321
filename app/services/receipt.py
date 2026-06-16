@@ -74,7 +74,7 @@ def retry_receipt(db: Session, receipt_id: int) -> ReceiptRecord:
     log = RetryLog(
         receipt_id=record.id,
         retry_at=datetime.utcnow(),
-        status="failed",
+        status="pending",
         error_message=record.error_message,
         response_data=record.response_data,
     )
@@ -82,6 +82,42 @@ def retry_receipt(db: Session, receipt_id: int) -> ReceiptRecord:
     db.commit()
     db.refresh(record)
     return record
+
+
+def batch_retry_failed(db: Session) -> list:
+    records = (
+        db.query(ReceiptRecord)
+        .filter(ReceiptRecord.status == "failed")
+        .filter(ReceiptRecord.retry_count < ReceiptRecord.max_retry)
+        .all()
+    )
+    retried = []
+    for record in records:
+        try:
+            result = retry_receipt(db, record.id)
+            retried.append(result)
+        except HTTPException:
+            pass
+    exhausted = (
+        db.query(ReceiptRecord)
+        .filter(ReceiptRecord.status == "failed")
+        .filter(ReceiptRecord.retry_count >= ReceiptRecord.max_retry)
+        .all()
+    )
+    for record in exhausted:
+        record.status = "final_failed"
+        log = RetryLog(
+            receipt_id=record.id,
+            retry_at=datetime.utcnow(),
+            status="final_failed",
+            error_message=f"已达到最大重试次数({record.max_retry}次)，标记为最终失败",
+        )
+        db.add(log)
+    if exhausted:
+        db.commit()
+        for r in exhausted:
+            db.refresh(r)
+    return {"retried": retried, "exhausted": exhausted}
 
 
 def process_failed_receipts(db: Session) -> list:

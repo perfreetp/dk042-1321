@@ -42,8 +42,8 @@ def _check_region_freeze(db: Session, tpl: PriceTemplate) -> None:
         )
 
 
-def _check_conflicts(db: Session, template_id: int, operator: str) -> None:
-    conflicts = detect_conflict(db, template_id)
+def _check_conflicts(db: Session, template_id: int, operator: str, brand_code: str = None, site_code: str = None) -> None:
+    conflicts = detect_conflict(db, template_id, brand_code, site_code)
     if conflicts:
         detail_list = []
         for c in conflicts:
@@ -78,21 +78,25 @@ def _activate_template(db: Session, tpl: PriceTemplate) -> None:
     db.flush()
 
 
-def _rollback_template(db: Session, tpl: PriceTemplate) -> None:
+def _rollback_template(db: Session, tpl: PriceTemplate, task: PublishTask) -> None:
     tpl.status = "archived"
-    prev_tpl = (
-        db.query(PriceTemplate)
+    prev_task = (
+        db.query(PublishTask)
+        .join(PriceTemplate, PublishTask.template_id == PriceTemplate.id)
         .filter(
             PriceTemplate.brand_code == tpl.brand_code,
             PriceTemplate.site_code == tpl.site_code,
             PriceTemplate.id != tpl.id,
-            PriceTemplate.status.in_(["active", "archived"]),
+            PublishTask.status == "published",
+            PublishTask.published_at < task.published_at,
         )
-        .order_by(desc(PriceTemplate.template_version))
+        .order_by(desc(PublishTask.published_at))
         .first()
     )
-    if prev_tpl:
-        prev_tpl.status = "active"
+    if prev_task:
+        prev_tpl = db.query(PriceTemplate).filter(PriceTemplate.id == prev_task.template_id).first()
+        if prev_tpl:
+            prev_tpl.status = "active"
     db.flush()
 
 
@@ -107,7 +111,7 @@ def create_task(db: Session, data: PublishTaskCreate) -> PublishTask:
     tpl = _get_template(db, data.template_id)
     _validate_template_prices(db, tpl)
     _check_region_freeze(db, tpl)
-    _check_conflicts(db, data.template_id, data.operator)
+    _check_conflicts(db, data.template_id, data.operator, tpl.brand_code, tpl.site_code)
 
     task = PublishTask(
         template_id=data.template_id,
@@ -159,6 +163,8 @@ def publish_now(db: Session, task_id: int) -> PublishTask:
 
     snapshot = json.dumps({
         "template_id": task.template_id,
+        "template_name": tpl.template_name,
+        "template_version": tpl.template_version,
         "publish_type": task.publish_type,
         "brand_code": tpl.brand_code,
         "site_code": tpl.site_code,
@@ -183,7 +189,7 @@ def rollback_task(db: Session, task_id: int, data: PublishRollbackRequest) -> Pu
         raise HTTPException(status_code=400, detail="仅published状态可回滚")
 
     tpl = _get_template(db, task.template_id)
-    _rollback_template(db, tpl)
+    _rollback_template(db, tpl, task)
 
     task.status = "rolled_back"
     task.rollback_at = datetime.utcnow()

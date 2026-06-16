@@ -33,6 +33,15 @@ def query_current_price(
     for tpl in templates:
         fee_items = db.query(FeeItem).filter(FeeItem.template_id == tpl.id).all()
         channel_prices = db.query(ChannelPrice).filter(ChannelPrice.template_id == tpl.id).all()
+        latest_publish = (
+            db.query(PublishTask)
+            .filter(
+                PublishTask.template_id == tpl.id,
+                PublishTask.status.in_(["published", "rolled_back"]),
+            )
+            .order_by(desc(PublishTask.published_at))
+            .first()
+        )
         tpl_data = {
             "template_id": tpl.id,
             "brand_code": tpl.brand_code,
@@ -52,6 +61,13 @@ def query_current_price(
                 for f in fee_items
             ],
             "channel_prices": [],
+            "publish_status": {
+                "task_id": latest_publish.id if latest_publish else None,
+                "status": latest_publish.status if latest_publish else None,
+                "published_at": latest_publish.published_at if latest_publish else None,
+                "rollback_at": latest_publish.rollback_at if latest_publish else None,
+                "operator": latest_publish.operator if latest_publish else None,
+            } if latest_publish else None,
         }
         for cp in channel_prices:
             if channel_code and cp.channel_code != channel_code:

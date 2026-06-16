@@ -45,6 +45,37 @@ def retry_receipt(receipt_id: int, db: Session = Depends(get_db)):
     return receipt_service.retry_receipt(db, receipt_id)
 
 
+@router.post("/batch-retry")
+def batch_retry_failed(db: Session = Depends(get_db)):
+    result = receipt_service.batch_retry_failed(db)
+    return {
+        "retried_count": len(result["retried"]),
+        "exhausted_count": len(result["exhausted"]),
+        "retried": [
+            {
+                "id": r.id,
+                "task_id": r.task_id,
+                "channel_code": r.channel_code,
+                "retry_count": r.retry_count,
+                "max_retry": r.max_retry,
+                "status": r.status,
+            }
+            for r in result["retried"]
+        ],
+        "exhausted": [
+            {
+                "id": r.id,
+                "task_id": r.task_id,
+                "channel_code": r.channel_code,
+                "retry_count": r.retry_count,
+                "max_retry": r.max_retry,
+                "status": r.status,
+            }
+            for r in result["exhausted"]
+        ],
+    }
+
+
 @router.post("/batch", response_model=List[ReceiptRecordOut])
 def create_receipts_for_task(task_id: int, channel_codes: List[str], db: Session = Depends(get_db)):
     return receipt_service.create_receipts_for_task(db, task_id, channel_codes)

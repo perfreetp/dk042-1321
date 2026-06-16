@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.models.publish import PublishTask
 from app.models.receipt import ReceiptRecord
 from app.models.risk import ConflictRecord, FreezeRule, PriceLimitRule, ReconciliationReport
+from app.models.strategy import PriceTemplate
 from app.schemas.risk import (
     ConflictResolveRequest,
     PriceValidationResult,
@@ -126,7 +127,7 @@ def check_region_frozen(db: Session, region_code) -> bool:
     )
 
 
-def detect_conflict(db: Session, template_id) -> list:
+def detect_conflict(db: Session, template_id, brand_code=None, site_code=None) -> list:
     conflicts = []
     pending_tasks = (
         db.query(PublishTask)
@@ -168,6 +169,47 @@ def detect_conflict(db: Session, template_id) -> list:
             )
             db.add(conflict)
             conflicts.append(conflict)
+    if brand_code and site_code:
+        site_pending_tasks = (
+            db.query(PublishTask)
+            .join(PriceTemplate, PublishTask.template_id == PriceTemplate.id)
+            .filter(
+                PriceTemplate.brand_code == brand_code,
+                PriceTemplate.site_code == site_code,
+                PriceTemplate.id != template_id,
+                PublishTask.status.in_(["pending", "publishing"]),
+            )
+            .all()
+        )
+        if site_pending_tasks:
+            existing_site_conflict = (
+                db.query(ConflictRecord)
+                .filter(
+                    ConflictRecord.template_id == template_id,
+                    ConflictRecord.conflict_type == "site_conflict",
+                    ConflictRecord.resolved == False,
+                )
+                .first()
+            )
+            if not existing_site_conflict:
+                detail = json.dumps(
+                    [
+                        {
+                            "task_id": t.id,
+                            "template_id": t.template_id,
+                            "status": t.status,
+                            "publish_type": t.publish_type,
+                        }
+                        for t in site_pending_tasks
+                    ]
+                )
+                conflict = ConflictRecord(
+                    template_id=template_id,
+                    conflict_type="site_conflict",
+                    conflict_detail=detail,
+                )
+                db.add(conflict)
+                conflicts.append(conflict)
     if conflicts:
         db.commit()
         for c in conflicts:
